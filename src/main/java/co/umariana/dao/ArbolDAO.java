@@ -35,6 +35,17 @@ import java.util.List;
  *    aparece después de la que necesita para poder agregarla al árbol.
  */
 public class ArbolDAO {
+    private void insertarMiembros(Connection con, long id, ArbolGenealogico arbol) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement("INSERT INTO miembros (arbol_id, posicion, nombre, nacimiento, fallecimiento) VALUES (?, ?, ?, ?, ?)")) {
+            for (co.umariana.modelo.Persona persona : arbol.miembros()) {
+                ps.setLong(1, id); ps.setString(2, persona.getPosicion());
+                ps.setString(3, persona.getNombre()); ps.setInt(4, persona.getNacimiento());
+                if (persona.getFallecimiento() == null) ps.setNull(5, java.sql.Types.INTEGER);
+                else ps.setInt(5, persona.getFallecimiento());
+                ps.executeUpdate();
+            }
+        }
+    }
 
     // =====================================================================
     // ETAPA 4.1. Guardar un árbol nuevo (INSERT en dos tablas, con transacción)
@@ -53,7 +64,22 @@ public class ArbolDAO {
         //   luego, por cada miembro: INSERT INTO miembros (arbol_id, posicion, nombre, nacimiento, fallecimiento)
         //   VALUES (?, ?, ?, ?, ?)  (fallecimiento null -> ps.setNull(5, java.sql.Types.INTEGER));
         //   commit; si hay un SQLException: rollback y devuelva -1.
-        throw new UnsupportedOperationException("TODO: guardar");
+        if (nombre == null || nombre.isBlank() || nombre.length() > 100 || arbol == null) return -1;
+        try (Connection con = ConexionBD.conectar()) {
+            con.setAutoCommit(false);
+            try {
+                long id;
+                try (PreparedStatement ps = con.prepareStatement("INSERT INTO arboles (nombre) VALUES (?)", Statement.RETURN_GENERATED_KEYS)) {
+                    ps.setString(1, nombre); ps.executeUpdate();
+                    try (ResultSet rs = ps.getGeneratedKeys()) {
+                        if (!rs.next()) throw new SQLException("No se generó el id");
+                        id = rs.getLong(1);
+                    }
+                }
+                insertarMiembros(con, id, arbol); con.commit(); return id;
+            } catch (SQLException e) { con.rollback(); throw e; }
+            finally { con.setAutoCommit(true); }
+        } catch (SQLException e) { System.out.println(e.getMessage()); return -1; }
     }
 
     // =====================================================================
@@ -70,7 +96,13 @@ public class ArbolDAO {
         //                 GROUP BY a.id, a.nombre, a.creado ORDER BY a.id
         //   (el LEFT JOIN hace que aparezcan también los árboles sin miembros, con total 0).
         //   Para la fecha use rs.getTimestamp("creado").toLocalDateTime().
-        throw new UnsupportedOperationException("TODO: listar");
+        List<ResumenArbol> lista = new ArrayList<>();
+        try (Connection con = ConexionBD.conectar();
+             PreparedStatement ps = con.prepareStatement("SELECT a.id, a.nombre, a.creado, COUNT(m.id) AS total FROM arboles a LEFT JOIN miembros m ON m.arbol_id = a.id GROUP BY a.id, a.nombre, a.creado ORDER BY a.id");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) lista.add(new ResumenArbol(rs.getLong("id"), rs.getString("nombre"), rs.getInt("total"), rs.getTimestamp("creado").toLocalDateTime()));
+            return lista;
+        } catch (SQLException e) { System.out.println(e.getMessage()); return new ArrayList<>(); }
     }
 
     // =====================================================================
@@ -86,7 +118,18 @@ public class ArbolDAO {
         //   La primera fila es el sujeto: new ArbolGenealogico(sujeto); las demás: arbol.agregar(persona).
         //   Para leer un entero que puede ser NULL: int f = rs.getInt("fallecimiento"); y luego rs.wasNull().
         //   Si no hay filas, el árbol no existe (devuelva null).
-        throw new UnsupportedOperationException("TODO: cargar");
+        try (Connection con = ConexionBD.conectar(); PreparedStatement ps = con.prepareStatement("SELECT posicion, nombre, nacimiento, fallecimiento FROM miembros WHERE arbol_id = ? ORDER BY id")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                ArbolGenealogico arbol = null;
+                while (rs.next()) {
+                    int f = rs.getInt("fallecimiento"); Integer fallecimiento = rs.wasNull() ? null : f;
+                    var persona = new co.umariana.modelo.Persona(rs.getString("posicion"), rs.getString("nombre"), rs.getInt("nacimiento"), fallecimiento);
+                    if (arbol == null) arbol = new ArbolGenealogico(persona); else arbol.agregar(persona);
+                }
+                return arbol;
+            }
+        } catch (SQLException | IllegalArgumentException e) { System.out.println(e.getMessage()); return null; }
     }
 
     // =====================================================================
@@ -103,7 +146,21 @@ public class ArbolDAO {
     public boolean actualizar(long id, ArbolGenealogico arbol) {
         // TODO Etapa 4.4: en una transacción: compruebe que el árbol existe (SELECT id FROM arboles WHERE id = ?),
         //   DELETE FROM miembros WHERE arbol_id = ?  y vuelva a insertar los miembros de arbol.miembros().
-        throw new UnsupportedOperationException("TODO: actualizar");
+        if (arbol == null) return false;
+        try (Connection con = ConexionBD.conectar()) {
+            con.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = con.prepareStatement("SELECT id FROM arboles WHERE id = ?")) {
+                    ps.setLong(1, id);
+                    try (ResultSet rs = ps.executeQuery()) { if (!rs.next()) { con.rollback(); return false; } }
+                }
+                try (PreparedStatement ps = con.prepareStatement("DELETE FROM miembros WHERE arbol_id = ?")) {
+                    ps.setLong(1, id); ps.executeUpdate();
+                }
+                insertarMiembros(con, id, arbol); con.commit(); return true;
+            } catch (SQLException e) { con.rollback(); throw e; }
+            finally { con.setAutoCommit(true); }
+        } catch (SQLException e) { System.out.println(e.getMessage()); return false; }
     }
 
     // =====================================================================
@@ -117,6 +174,8 @@ public class ArbolDAO {
      */
     public boolean eliminar(long id) {
         // TODO Etapa 4.5: DELETE FROM arboles WHERE id = ?
-        throw new UnsupportedOperationException("TODO: eliminar");
+        try (Connection con = ConexionBD.conectar(); PreparedStatement ps = con.prepareStatement("DELETE FROM arboles WHERE id = ?")) {
+            ps.setLong(1, id); return ps.executeUpdate() > 0;
+        } catch (SQLException e) { System.out.println(e.getMessage()); return false; }
     }
 }

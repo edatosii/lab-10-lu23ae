@@ -52,6 +52,34 @@ public final class ConstructorArbol {
      */
     public static ArbolGenealogico construir(String texto) {
         // TODO Etapa 3
-        throw new UnsupportedOperationException("TODO: construir");
+        if (texto == null || texto.isBlank()) throw new ArbolInvalidoException("El texto está vacío");
+        record Entrada(co.umariana.modelo.Persona persona, int linea) {}
+        java.util.List<Entrada> entradas = new java.util.ArrayList<>();
+        String[] lineas = texto.split("\\r?\\n", -1);
+        co.umariana.modelo.Persona sujeto = null;
+        for (int i = 0; i < lineas.length; i++) {
+            if (lineas[i].isBlank()) continue;
+            try {
+                String[] campos = lineas[i].split(";", -1);
+                if (campos.length < 3 || campos.length > 4) throw new IllegalArgumentException("Se requieren 3 o 4 campos");
+                for (int j = 0; j < campos.length; j++) campos[j] = campos[j].trim();
+                Integer fallecimiento = campos.length == 3 || campos[3].isEmpty() ? null : Integer.valueOf(campos[3]);
+                var persona = new co.umariana.modelo.Persona(campos[0], campos[1], Integer.parseInt(campos[2]), fallecimiento);
+                persona.validar();
+                for (Entrada entrada : entradas) if (entrada.persona().getPosicion().equals(campos[0]))
+                    throw new IllegalArgumentException("La posición está repetida");
+                entradas.add(new Entrada(persona, i + 1));
+                if (co.umariana.modelo.Posicion.esSujeto(campos[0])) sujeto = persona;
+            } catch (IllegalArgumentException e) { throw new ArbolInvalidoException("Línea " + (i + 1) + ": " + e.getMessage()); }
+        }
+        if (sujeto == null) throw new ArbolInvalidoException("Falta el sujeto en la posición 1");
+        ArbolGenealogico arbol = new ArbolGenealogico(sujeto);
+        entradas.sort(java.util.Comparator.comparingInt(e -> co.umariana.modelo.Posicion.generacion(e.persona().getPosicion())));
+        for (Entrada entrada : entradas) {
+            if (co.umariana.modelo.Posicion.esSujeto(entrada.persona().getPosicion())) continue;
+            try { arbol.agregar(entrada.persona()); }
+            catch (IllegalArgumentException e) { throw new ArbolInvalidoException("Línea " + entrada.linea() + ": " + e.getMessage()); }
+        }
+        return arbol;
     }
 }
