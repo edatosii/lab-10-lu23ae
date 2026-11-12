@@ -42,7 +42,11 @@ public class Persona {
      */
     public void validar() {
         // TODO Etapa 1
-        throw new UnsupportedOperationException("TODO: validar");
+        if (!Posicion.esValida(posicion)) throw new IllegalArgumentException("Posición inválida");
+        if (nombre == null || nombre.isBlank() || nombre.length() > MAX_NOMBRE) throw new IllegalArgumentException("Nombre inválido");
+        if (nombre.contains(";") || nombre.contains("\n") || nombre.contains("\r")) throw new IllegalArgumentException("Nombre con separadores inválidos");
+        if (nacimiento <= 0) throw new IllegalArgumentException("Nacimiento debe ser mayor que cero");
+        if (fallecimiento != null && fallecimiento < nacimiento) throw new IllegalArgumentException("Fallecimiento anterior al nacimiento");
     }
 
     public String getPosicion() { return posicion; }
